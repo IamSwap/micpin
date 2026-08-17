@@ -1,0 +1,141 @@
+name: Release
+
+# Builds a universal, Developer ID signed, notarized, stapled MicPin.app and
+# attaches it to the GitHub release.
+#
+# Required repository secrets:
+#   DEVELOPER_ID_P12          base64 of a .p12 holding the Developer ID
+#                             Application cert and its private key
+#                             (base64 -i cert.p12 | pbcopy)
+#   DEVELOPER_ID_P12_PASSWORD the password used when exporting that .p12
+#   NOTARY_KEY_P8             base64 of the App Store Connect API .p8 key
+#   NOTARY_KEY_ID             the key's ID
+#   NOTARY_ISSUER_ID          the issuer UUID from App Store Connect
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp the version from the tag
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" Info.plist
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Import the signing certificate
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+              -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+
+          # Without this, codesign fails with errSecInternalComponent when it
+          # tries to use the imported key non-interactively.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+              -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+
+          # notarytool and codesign look in the default keychain / search list.
+          security default-keychain -s "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" \
+              | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+
+          if [[ -z $IDENTITY ]]; then
+              echo "::error::no Developer ID Application identity in the imported .p12"
+              security find-identity -v -p codesigning "$KEYCHAIN"
+              exit 1
+          fi
+
+          echo "Using: $IDENTITY"
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Store notary credentials
+        env:
+          KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          echo "$KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+
+          xcrun notarytool store-credentials micpin \
+              --key "$RUNNER_TEMP/notary.p8" \
+              --key-id "$KEY_ID" \
+              --issuer "$ISSUER_ID" \
+              --keychain "$KEYCHAIN"
+
+          rm -f "$RUNNER_TEMP/notary.p8"
+
+      - name: Build, sign, notarize, staple
+        env:
+          UNIVERSAL: "1"
+          NOTARY_PROFILE: micpin
+        run: ./build.sh "$RUNNER_TEMP/MicPin.app"
+
+      - name: Verify the result independently of the build
+        run: |
+          APP="$RUNNER_TEMP/MicPin.app"
+
+          echo "architectures:"
+          lipo -archs "$APP/Contents/MacOS/MicPin"
+
+          # A stapled ticket must validate with no network round trip.
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=2 "$APP"
+
+          # And it must survive the archive a user actually downloads.
+          rm -rf "$RUNNER_TEMP/roundtrip"
+          mkdir -p "$RUNNER_TEMP/roundtrip"
+          ditto -x -k dist/MicPin.zip "$RUNNER_TEMP/roundtrip"
+          xcrun stapler validate "$RUNNER_TEMP/roundtrip/MicPin.app"
+          spctl --assess --type execute "$RUNNER_TEMP/roundtrip/MicPin.app"
+
+      - name: Name the asset
+        run: |
+          NAME="MicPin${VERSION:+-$VERSION}-universal.zip"
+          mv dist/MicPin.zip "dist/$NAME"
+          echo "ASSET=dist/$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MicPin-universal
+          path: ${{ env.ASSET }}
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          security default-keychain -s login.keychain-db || true
+          security delete-keychain "$KEYCHAIN" || true

@@ -46,8 +46,9 @@ missing, `mic.slash.fill` paused, `mic` nothing pinned.
 ## Build
 
 ```sh
-./build.sh                 # → /Applications/MicPin.app
+./build.sh                        # → /Applications/MicPin.app
 ./build.sh ~/Applications/MicPin.app
+UNIVERSAL=1 ./build.sh            # fat binary, arm64 + x86_64
 ```
 
 Single-file `swiftc` build, ad-hoc signed. No Xcode project, no dependencies.
@@ -107,6 +108,46 @@ reissued, and Apple caps how many a team may hold.
 No entitlements are needed. MicPin never opens an audio stream — it only reads
 and sets CoreAudio device properties — so it requires no microphone permission
 and triggers no TCC prompt.
+
+## Releases
+
+Publishing a GitHub release triggers `.github/workflows/release.yml`, which builds
+a **universal** (arm64 + x86_64) binary, signs it with Developer ID, notarizes it,
+staples the ticket and attaches `MicPin-<version>-universal.zip` to the release.
+So a download needs no Gatekeeper right-click and no build tools.
+
+The workflow re-verifies independently of `build.sh`: it staples, asserts with
+`spctl`, then unpacks the archive a user would actually download and asserts
+*that* passes — a ticket can be stapled to the app and still be lost by a bad
+archiving step.
+
+`CFBundleShortVersionString` is stamped from the tag (`v1.2.0` → `1.2.0`), so
+version numbers come from the tag rather than being edited by hand.
+
+`workflow_dispatch` runs everything and uploads a workflow artifact without
+touching a release — use it to test signing changes.
+
+### Required repository secrets
+
+| Secret | What |
+|---|---|
+| `DEVELOPER_ID_P12` | base64 of a `.p12` holding the Developer ID Application cert **and** its private key |
+| `DEVELOPER_ID_P12_PASSWORD` | the password set when exporting that `.p12` |
+| `NOTARY_KEY_P8` | base64 of the App Store Connect API `.p8` key |
+| `NOTARY_KEY_ID` | that key's ID |
+| `NOTARY_ISSUER_ID` | the issuer UUID from App Store Connect |
+
+Export the certificate from Keychain Access (right-click the identity → Export →
+`.p12`), then:
+
+```sh
+base64 -i Certificates.p12 | pbcopy
+base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
+```
+
+The keychain password is generated per run, so it is not a secret. The workflow
+creates a throwaway keychain and deletes it in an `always()` step, so a failed
+build never leaves the signing key on the runner.
 
 ## CLI
 

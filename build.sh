@@ -38,15 +38,33 @@ fi
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 
-echo "Compiling for $(uname -m)…"
-xcrun swiftc \
-    -O \
-    -target "$(uname -m)-apple-macos13.0" \
-    -framework AppKit \
-    -framework CoreAudio \
-    -framework ServiceManagement \
-    -o "$CONTENTS/MacOS/MicPin" \
-    Sources/MicPin.swift
+compile() {
+    xcrun swiftc \
+        -O \
+        -target "$1-apple-macos13.0" \
+        -framework AppKit \
+        -framework CoreAudio \
+        -framework ServiceManagement \
+        -o "$2" \
+        Sources/MicPin.swift
+}
+
+if [[ -n ${UNIVERSAL:-} ]]; then
+    echo "Compiling universal (arm64 + x86_64)…"
+    slices=$(mktemp -d)
+    trap 'rm -rf "$slices"' EXIT
+
+    for arch in arm64 x86_64; do
+        compile "$arch" "$slices/MicPin-$arch"
+    done
+
+    lipo -create -output "$CONTENTS/MacOS/MicPin" "$slices/MicPin-arm64" "$slices/MicPin-x86_64"
+else
+    echo "Compiling for $(uname -m)…"
+    compile "$(uname -m)" "$CONTENTS/MacOS/MicPin"
+fi
+
+lipo -archs "$CONTENTS/MacOS/MicPin"
 
 cp Info.plist "$CONTENTS/Info.plist"
 
