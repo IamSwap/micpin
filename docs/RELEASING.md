@@ -49,6 +49,12 @@ A published release can briefly have no asset attached, since this workflow
 uploads it a few minutes later. The tap treats that as "not ready yet" and picks
 it up on the next run rather than failing.
 
+**After a long gap between releases, check the bump actually happened.** GitHub
+disables scheduled workflows in a public repository after 60 days with no
+repository activity, and the tap is only committed to when a release lands — so
+the schedule can switch off exactly when it is next needed. GitHub emails before
+doing so. Dispatching manually always works regardless.
+
 ## Required repository secrets
 
 | Secret | What |
