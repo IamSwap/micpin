@@ -200,6 +200,19 @@ private enum Style {
 
     static var font: NSFont { .menuFont(ofSize: 0) }
 
+    /// Control Centre lightens a hovered row with a translucent wash so the
+    /// blur behind still shows. Sampling a native panel: background #787878,
+    /// hovered #8C8C8C — about +20/255, i.e. white at ~0.14.
+    ///
+    /// Not `unemphasizedSelectedContentBackgroundColor`: that is the opaque
+    /// list-selection grey (rgb 70,70,70 in dark), which paints over the
+    /// translucency and reads far darker than the row it highlights.
+    static let hover = NSColor(name: "MicPinHover") { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.14)
+            : NSColor.black.withAlphaComponent(0.08)
+    }
+
     static func width(for title: String, extra: CGFloat = 0) -> CGFloat {
         let text = (title as NSString).size(withAttributes: [.font: font]).width
         return leftInset + badge + gap + ceil(text) + rightInset + extra
@@ -246,10 +259,10 @@ private class HighlightingRowView: NSView {
             return
         }
 
-        // Control Centre highlights with a quiet grey wash, not the accent
-        // colour, and leaves the row's own colours alone.
+        // Control Centre highlights with a quiet translucent wash, not the
+        // accent colour, and leaves the row's own colours alone.
         let inset = NSRect(x: 5, y: 1, width: bounds.width - 10, height: bounds.height - 2)
-        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+        Style.hover.setFill()
         NSBezierPath(roundedRect: inset, xRadius: Style.cornerRadius, yRadius: Style.cornerRadius).fill()
     }
 
