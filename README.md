@@ -13,7 +13,7 @@ usually noticed halfway through a call. MicPin puts it straight back.
 Speakers and headphones are left alone, so you can listen on Bluetooth while a
 USB or XLR mic keeps the input.
 
-<img src="Resources/menu.png" alt="The MicPin menu, listing input devices with the pinned one marked by a filled blue badge" width="100%">
+<img src="Resources/screenshot.png" alt="The MicPin menu, listing input devices with the pinned one marked by a filled blue badge" width="100%">
 
 ## Install
 
