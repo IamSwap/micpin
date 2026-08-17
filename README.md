@@ -38,19 +38,20 @@ changes which device is selected — so macOS never asks for microphone access.
 
 | Menu item | |
 |---|---|
-| *Holding …* | what it's doing right now |
+| *Holding …* + switch | what it's doing, and the on/off switch for the whole app |
 | device list | pick the mic to keep — the blue badge marks it |
-| Pin nothing | stop holding a mic, leave the app running |
-| Pause pinning | when you actually do want a different mic |
 | Open at login | start MicPin with your Mac |
 | Sound Settings… | opens the Sound pane |
 | Quit MicPin | ⌘Q |
+
+Turn the top switch off when you genuinely want a different mic. Your choice is
+remembered, so switching back on resumes holding the same one.
 
 Each device shows how it's connected — USB, Bluetooth, built-in, iPhone, virtual
 — which is often clearer than the name.
 
 The menubar icon shows the state: a plain mic while holding one, crossed out when
-paused, and marked when your pinned mic isn't plugged in. If it's unplugged
+switched off, and marked when your chosen mic isn't plugged in. If it's unplugged
 MicPin steps aside and lets macOS choose, then takes over again when it's back.
 
 **One thing to know:** Zoom, Teams and Google Meet remember their own microphone

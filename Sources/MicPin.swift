@@ -246,8 +246,10 @@ private class HighlightingRowView: NSView {
             return
         }
 
+        // Control Centre highlights with a quiet grey wash, not the accent
+        // colour, and leaves the row's own colours alone.
         let inset = NSRect(x: 5, y: 1, width: bounds.width - 10, height: bounds.height - 2)
-        NSColor.selectedContentBackgroundColor.setFill()
+        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
         NSBezierPath(roundedRect: inset, xRadius: Style.cornerRadius, yRadius: Style.cornerRadius).fill()
     }
 
@@ -255,10 +257,10 @@ private class HighlightingRowView: NSView {
         isEnabledRow && (isHovered || enclosingMenuItem?.isHighlighted == true)
     }
 
-    func drawLabel(_ title: String, x: CGFloat, colour: NSColor) {
+    func drawLabel(_ title: String, x: CGFloat, colour: NSColor, font: NSFont = Style.font) {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: Style.font,
-            .foregroundColor: isHighlightedRow ? NSColor.selectedMenuItemTextColor : colour,
+            .font: font,
+            .foregroundColor: colour,
         ]
         let size = (title as NSString).size(withAttributes: attributes)
         let y = (bounds.height - size.height) / 2
@@ -292,13 +294,14 @@ private final class DeviceRowView: HighlightingRowView {
     private let isPinned: Bool
     private let isAvailable: Bool
 
-    init(device: AudioDevice, isPinned: Bool, isAvailable: Bool) {
+    init(device: AudioDevice, isPinned: Bool, isAvailable: Bool, width: CGFloat) {
         self.device = device
         self.isPinned = isPinned
         self.isAvailable = isAvailable
-        super.init(frame: NSRect(x: 0, y: 0,
-                                 width: Style.width(for: device.name),
-                                 height: Style.rowHeight))
+
+        // Must be the menu-wide width, not this row's own text width, or the
+        // highlight stops short of the edge and every row is a different size.
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Style.rowHeight))
         isEnabledRow = isAvailable
 
         setAccessibilityRole(.menuItem)
@@ -317,18 +320,9 @@ private final class DeviceRowView: HighlightingRowView {
                                height: Style.badge)
 
         // Filled accent badge marks the active device, as the Sound panel does.
-        // On a highlighted row the accent fill would sit on accent, and the
-        // faint unpinned fill would vanish, so both invert against the blue.
-        let badgeColour: NSColor
-        let glyphColour: NSColor
-
-        if isHighlightedRow {
-            badgeColour = isPinned ? .white : NSColor.white.withAlphaComponent(0.22)
-            glyphColour = isPinned ? .controlAccentColor : .white
-        } else {
-            badgeColour = isPinned ? .controlAccentColor : .quaternaryLabelColor
-            glyphColour = isPinned ? .white : .secondaryLabelColor
-        }
+        // The hover wash is grey, so these need no inverted variant.
+        let badgeColour: NSColor = isPinned ? .controlAccentColor : .quaternaryLabelColor
+        let glyphColour: NSColor = isPinned ? .white : .secondaryLabelColor
 
         badgeColour.setFill()
         NSBezierPath(ovalIn: badgeRect).fill()
@@ -413,22 +407,37 @@ private final class ActionRowView: HighlightingRowView {
 /// A row that reads as a switch and, unlike a normal menu item, does not
 /// dismiss the menu — so the state change is actually visible.
 private final class ToggleRowView: HighlightingRowView {
-    private let title: String
+    // Read on every draw rather than captured once: the master row doubles as
+    // the status line, so flipping the switch changes its own text. Rebuilding
+    // the menu instead would tear down the very view handling the click.
+    private let titleProvider: () -> String
     private var isOn: Bool
+    private let emphasised: Bool
+
+    private var title: String { titleProvider() }
 
     /// Returns the state that actually took effect, so a failed change reverts.
     private let onToggle: (Bool) -> Bool
 
     private let switchSize = NSSize(width: 36, height: 21)
 
-    init(title: String, isOn: Bool, width: CGFloat, onToggle: @escaping (Bool) -> Bool) {
-        self.title = title
+    init(title: @escaping () -> String, isOn: Bool, width: CGFloat, emphasised: Bool = false,
+         onToggle: @escaping (Bool) -> Bool) {
+        self.titleProvider = title
         self.isOn = isOn
+        self.emphasised = emphasised
         self.onToggle = onToggle
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Style.rowHeight))
 
         setAccessibilityRole(.checkBox)
-        setAccessibilityLabel(title)
+        setAccessibilityLabel(title())
+    }
+
+    /// Return and Space arrive as the menu item's action, not as a mouse event,
+    /// so keyboard users need this path — without it the switches are
+    /// mouse-only.
+    func activate() {
+        performToggle()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -436,7 +445,10 @@ private final class ToggleRowView: HighlightingRowView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        drawLabel(title, x: Style.leftInset, colour: .labelColor)
+        let font = emphasised
+            ? NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+            : Style.font
+        drawLabel(title, x: Style.leftInset, colour: .labelColor, font: font)
 
         let track = NSRect(x: bounds.width - switchSize.width - Style.rightInset + 6,
                            y: (bounds.height - switchSize.height) / 2,
@@ -456,6 +468,10 @@ private final class ToggleRowView: HighlightingRowView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        performToggle()
+    }
+
+    private func performToggle() {
         isOn = onToggle(!isOn)
         needsDisplay = true
 
@@ -593,36 +609,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             max($0, Style.width(for: $1, extra: 46))
         }
 
-        menu.addItem(sectionHeader(statusLine(), width: widest))
+        // One switch for the whole app, on the status row. "Pin nothing" and
+        // "Pause pinning" used to sit at the bottom doing near-identical
+        // things — both stopped the mic being held, differing only in whether
+        // the choice was remembered, which is a distinction nobody wants to
+        // think about.
+        menu.addItem(toggleRow({ [weak self] in self?.statusLine() ?? "" },
+                               isOn: !Prefs.isPaused, width: widest,
+                               emphasised: true) { [weak self] isOn in
+            Prefs.isPaused = !isOn
+            self?.enforce()
+            return isOn
+        })
+
         menu.addItem(.separator())
-        menu.addItem(sectionHeader("Pinned input device", width: widest))
+        menu.addItem(sectionHeader("Input device", width: widest))
 
         for device in devices {
-            menu.addItem(deviceRow(device, isPinned: device.uid == target?.uid, isAvailable: true))
+            menu.addItem(deviceRow(device, isPinned: device.uid == target?.uid, isAvailable: true,
+                                   width: widest))
         }
 
         if devices.isEmpty {
             menu.addItem(sectionHeader("No input devices found", width: widest))
         }
 
-        // A pinned device that is currently unplugged still deserves a row, so
-        // it can be seen and unpinned.
+        // An unplugged choice still gets a row, so it is visible rather than
+        // silently missing from the list.
         if target == nil, let name = Prefs.pinnedName {
             let absent = AudioDevice(id: 0, uid: Prefs.pinnedUID ?? name,
                                      name: "\(name) (not connected)", transport: 0)
-            menu.addItem(deviceRow(absent, isPinned: true, isAvailable: false))
+            menu.addItem(deviceRow(absent, isPinned: true, isAvailable: false, width: widest))
         }
 
         menu.addItem(.separator())
-        menu.addItem(actionRow("Pin nothing", action: #selector(unpin), width: widest))
-        menu.addItem(toggleRow("Pause pinning", isOn: Prefs.isPaused, width: widest) { [weak self] isOn in
-            Prefs.isPaused = isOn
-            self?.enforce()
-            return isOn
-        })
-
-        menu.addItem(.separator())
-        menu.addItem(toggleRow("Open at login",
+        menu.addItem(toggleRow({ "Open at login" },
                                isOn: SMAppService.mainApp.status == .enabled,
                                width: widest) { [weak self] isOn in
             self?.setLoginItem(enabled: isOn) ?? false
@@ -636,15 +657,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func statusLine() -> String {
         if Prefs.isPaused {
-            return "Paused — macOS picks the input"
+            return "MicPin is off"
         }
 
         guard Prefs.pinnedUID != nil || Prefs.pinnedName != nil else {
-            return "Nothing pinned"
+            return "Choose a microphone"
         }
 
         guard let target = pinnedDevice else {
-            return "\(Prefs.pinnedName ?? "Pinned device") not connected"
+            return "\(Prefs.pinnedName ?? "Your microphone") is unplugged"
         }
 
         return "Holding \(target.name)"
@@ -658,12 +679,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    private func deviceRow(_ device: AudioDevice, isPinned: Bool, isAvailable: Bool) -> NSMenuItem {
+    private func deviceRow(_ device: AudioDevice, isPinned: Bool, isAvailable: Bool,
+                           width: CGFloat) -> NSMenuItem {
         let item = NSMenuItem(title: device.name, action: #selector(pinDevice(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = device.uid
         item.isEnabled = isAvailable
-        item.view = DeviceRowView(device: device, isPinned: isPinned, isAvailable: isAvailable)
+        item.view = DeviceRowView(device: device, isPinned: isPinned, isAvailable: isAvailable,
+                                  width: width)
 
         return item
     }
@@ -677,12 +700,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    private func toggleRow(_ title: String, isOn: Bool, width: CGFloat,
+    private func toggleRow(_ title: @escaping () -> String, isOn: Bool, width: CGFloat,
+                           emphasised: Bool = false,
                            onToggle: @escaping (Bool) -> Bool) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.view = ToggleRowView(title: title, isOn: isOn, width: width, onToggle: onToggle)
+        // The action exists for Return and Space; a mouse click is handled by
+        // the view itself and never routed here, so it cannot double-fire.
+        let item = NSMenuItem(title: title(), action: #selector(activateToggle(_:)), keyEquivalent: "")
+        item.target = self
+        item.view = ToggleRowView(title: title, isOn: isOn, width: width,
+                                  emphasised: emphasised, onToggle: onToggle)
 
         return item
+    }
+
+    @objc private func activateToggle(_ sender: NSMenuItem) {
+        (sender.view as? ToggleRowView)?.activate()
     }
 
     // MARK: Actions
@@ -696,12 +728,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Prefs.pinnedName = Audio.inputDevices().first { $0.uid == uid }?.name
         Prefs.isPaused = false
         enforce()
-    }
-
-    @objc private func unpin() {
-        Prefs.pinnedUID = nil
-        Prefs.pinnedName = nil
-        refreshIcon()
     }
 
     @objc private func togglePause() {
