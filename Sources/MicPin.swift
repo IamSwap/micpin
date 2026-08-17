@@ -345,8 +345,13 @@ private final class DeviceRowView: HighlightingRowView {
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [glyphColour]))
 
-        if let glyph = NSImage(systemSymbolName: device.symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(config) {
+        // "mic" is the fallback because the transport-specific names are newer
+        // than the macOS 13 floor; without it an unavailable symbol would leave
+        // a silently empty badge on an older release.
+        let glyph = NSImage(systemSymbolName: device.symbolName, accessibilityDescription: nil)
+            ?? NSImage(systemSymbolName: "mic", accessibilityDescription: nil)
+
+        if let glyph = glyph?.withSymbolConfiguration(config) {
             let size = glyph.size
             let origin = NSPoint(x: badgeRect.midX - size.width / 2, y: badgeRect.midY - size.height / 2)
             glyph.draw(in: NSRect(origin: origin, size: size))
