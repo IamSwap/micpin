@@ -11,6 +11,9 @@
     <key>CFBundleExecutable</key>
     <string>MicPin</string>
 
+    <key>CFBundleIconFile</key>
+    <string>MicPin</string>
+
     <key>CFBundleIdentifier</key>
     <string>com.chitranu.micpin</string>
 

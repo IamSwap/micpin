@@ -67,6 +67,7 @@ fi
 lipo -archs "$CONTENTS/MacOS/MicPin"
 
 cp Info.plist "$CONTENTS/Info.plist"
+cp Resources/MicPin.icns "$CONTENTS/Resources/MicPin.icns"
 
 if [[ $SIGN_IDENTITY == "-" ]]; then
     echo "Signing ad-hoc…"

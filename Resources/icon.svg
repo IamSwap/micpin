@@ -1,0 +1,28 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6BB6FF"/>
+      <stop offset="1" stop-color="#2352C4"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD75E"/>
+      <stop offset="1" stop-color="#F0951A"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="188" fill="url(#bg)"/>
+
+  <g stroke="#ffffff" stroke-width="56" stroke-linecap="round" fill="none">
+    <path d="M366 480 a146 146 0 0 0 292 0"/>
+    <path d="M512 626 v104"/>
+    <path d="M420 730 h184"/>
+  </g>
+  <rect x="440" y="250" width="144" height="304" rx="72" fill="#ffffff"/>
+
+  <circle cx="746" cy="742" r="118" fill="#ffffff"/>
+  <g fill="url(#pin)" transform="rotate(38 746 742)">
+    <rect x="694" y="668" width="104" height="34" rx="17"/>
+    <rect x="729" y="694" width="34" height="52"/>
+    <path d="M732 742 h28 l-14 76 z"/>
+  </g>
+</svg>

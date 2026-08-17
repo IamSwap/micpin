@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Resources/icon.png" alt="MicPin icon" width="140">
+</p>
+
 # MicPin
 
 A tiny macOS menubar app that pins one audio **input** device as the system
@@ -156,6 +160,10 @@ plumbing — so it should be quick to find your way around.
 
 `./doctor.sh` checks your toolchain, certificates and notary credentials and
 explains whatever is missing.
+
+The app icon is drawn in [`Resources/icon.svg`](Resources/icon.svg). `MicPin.icns`
+is committed so a normal build needs no extra tooling; after editing the SVG run
+`Resources/make-icon.sh` to regenerate it (needs `brew install librsvg`).
 
 ## Prior art
 
