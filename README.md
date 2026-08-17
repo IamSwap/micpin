@@ -15,6 +15,10 @@ a call. MicPin puts it back, within a fraction of a second.
 Output is never touched, so the two stay independent: listen through Bluetooth
 headphones while a USB or XLR mic keeps the input.
 
+<p align="center">
+  <img src="Resources/screenshot.png" alt="The MicPin menu, listing input devices with the pinned one marked by a filled blue badge" width="340">
+</p>
+
 ## Install
 
 Download the latest `MicPin-<version>-universal.zip` from
@@ -38,10 +42,6 @@ Done. macOS can no longer hand the input to whatever connected last.
 CoreAudio device properties, so macOS never prompts for microphone access.
 
 ## Using it
-
-<p align="center">
-  <img src="Resources/screenshot.png" alt="The MicPin menu" width="330">
-</p>
 
 | Menu item | |
 |---|---|
