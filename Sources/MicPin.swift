@@ -150,7 +150,6 @@ enum Prefs {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
-    private var lastRestoredFrom: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -223,7 +222,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
-        lastRestoredFrom = previousName
         NSLog("MicPin: input was \"\(previousName)\", restored \"\(target.name)\"")
     }
 
