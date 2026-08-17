@@ -17,7 +17,11 @@ USB or XLR mic keeps the input.
 
 ## Install
 
-Download the latest zip from
+```sh
+brew install --cask IamSwap/tap/micpin
+```
+
+Or download the latest zip from
 [**Releases**](https://github.com/IamSwap/micpin/releases), unzip it, and drag
 `MicPin.app` into `/Applications`. It opens straight away, with no security
 warning.
@@ -101,6 +105,12 @@ defaults read com.chitranu.micpin
 ```
 
 ## Uninstall
+
+```sh
+brew uninstall --cask micpin        # add --zap to remove settings too
+```
+
+Or by hand:
 
 ```sh
 /Applications/MicPin.app/Contents/MacOS/MicPin --unregister-login-item
