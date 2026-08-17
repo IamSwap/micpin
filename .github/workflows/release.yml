@@ -134,8 +134,65 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
 
+      - name: Bump the Homebrew cask
+        if: github.event_name == 'release'
+        env:
+          DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Optional: without the key the tap still catches up on its own
+          # schedule, so a missing secret is not worth failing a release over.
+          if [[ -z ${DEPLOY_KEY:-} ]]; then
+              echo "::warning::TAP_DEPLOY_KEY unset; the tap will bump itself on schedule"
+              exit 0
+          fi
+
+          KEY="$RUNNER_TEMP/tap_key"
+          printf '%s\n' "$DEPLOY_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          export GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+          # Hash the archive that was just uploaded rather than re-downloading
+          # it, so the cask cannot disagree with the published asset.
+          SHA=$(shasum -a 256 "$ASSET" | cut -d' ' -f1)
+          echo "version $VERSION  sha256 $SHA"
+
+          # Best-effort from here on: the release itself has already shipped, so
+          # a cask bump that cannot reach the tap must not fail the run. The
+          # tap's own scheduled check is the fallback.
+          if ! git clone --depth 1 git@github.com:IamSwap/homebrew-tap.git "$RUNNER_TEMP/tap"; then
+              echo "::warning::cannot reach the tap — deploy key missing or revoked? It will bump on schedule"
+              exit 0
+          fi
+
+          cd "$RUNNER_TEMP/tap"
+
+          sed -i '' "s|^  version \".*\"|  version \"$VERSION\"|" Casks/micpin.rb
+          sed -i '' "s|^  sha256 \".*\"|  sha256 \"$SHA\"|" Casks/micpin.rb
+
+          grep -q "  version \"$VERSION\"" Casks/micpin.rb || { echo "::error::version not written"; exit 1; }
+          grep -q "  sha256 \"$SHA\"" Casks/micpin.rb      || { echo "::error::sha256 not written"; exit 1; }
+
+          if git diff --quiet; then
+              echo "Cask already at $VERSION."
+              exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "micpin $VERSION"
+
+          if ! git push; then
+              echo "::warning::could not push to the tap; it will bump on schedule"
+              exit 0
+          fi
+
+          echo "Cask bumped to $VERSION."
+
       - name: Remove the signing keychain
         if: always()
         run: |
           security default-keychain -s login.keychain-db || true
           security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/tap_key" || true
