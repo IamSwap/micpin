@@ -16,7 +16,7 @@ Output is never touched, so the two stay independent: listen through Bluetooth
 headphones while a USB or XLR mic keeps the input.
 
 <p align="center">
-  <img src="Resources/screenshot.png" alt="The MicPin menu, listing input devices with the pinned one marked by a filled blue badge" width="340">
+  <img src="Resources/menu.png" alt="The MicPin menu, listing input devices with the pinned one marked by a filled blue badge" width="340">
 </p>
 
 ## Install
