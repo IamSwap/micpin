@@ -39,18 +39,29 @@ CoreAudio device properties, so macOS never prompts for microphone access.
 
 ## Using it
 
+<p align="center">
+  <img src="Resources/screenshot.png" alt="The MicPin menu" width="330">
+</p>
+
 | Menu item | |
 |---|---|
 | *Holding &lt;device&gt;* | current state; also reports when the pinned device is unplugged or paused |
-| device list | pick which input to pin (radio) |
+| device list | pick which input to pin — the filled blue badge marks the active one |
 | Pin nothing | stop pinning, leave the app running |
 | Pause pinning | escape hatch for when you genuinely want another mic |
 | Open at login | `SMAppService` registration, mirrors System Settings → Login Items |
 | Sound Settings… | opens the Sound pane |
 | Quit MicPin | ⌘Q |
 
-The icon reflects state: `mic.fill` holding, `mic.badge.xmark.fill` pinned device
-not connected, `mic.slash.fill` paused, `mic` nothing pinned.
+Each device carries an icon for how it is attached — USB, Bluetooth, built-in,
+virtual, Continuity, display — read from `kAudioDevicePropertyTransportType`.
+With names like `BlackHole 2ch` and `iPhone 12 mini Microphone` in one list, the
+kind is often more useful than the name.
+
+The two switches do not dismiss the menu, so you can see the state change.
+
+The menubar icon reflects state: `mic.fill` holding, `mic.badge.xmark.fill`
+pinned device not connected, `mic.slash.fill` paused, `mic` nothing pinned.
 
 If the pinned device is unplugged, MicPin does nothing and lets macOS choose —
 it only intervenes when the device it is holding is actually available.

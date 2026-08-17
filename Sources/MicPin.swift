@@ -40,6 +40,33 @@ struct AudioDevice {
     let id: AudioDeviceID
     let uid: String
     let name: String
+    let transport: UInt32
+
+    // Transport tells the user more than the name often does — "BlackHole 2ch"
+    // and "iPhone 12 mini Microphone" are far easier to tell apart by kind.
+    var symbolName: String {
+        switch transport {
+        case kAudioDeviceTransportTypeBuiltIn:
+            return "laptopcomputer"
+        case kAudioDeviceTransportTypeUSB:
+            return "cable.connector"
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE:
+            return "wave.3.right"
+        case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate:
+            return "square.stack.3d.up"
+        case kAudioDeviceTransportTypeContinuityCaptureWired,
+             kAudioDeviceTransportTypeContinuityCaptureWireless:
+            return "iphone"
+        case kAudioDeviceTransportTypeDisplayPort, kAudioDeviceTransportTypeHDMI:
+            return "display"
+        case kAudioDeviceTransportTypeAirPlay:
+            return "airplayaudio"
+        case kAudioDeviceTransportTypeThunderbolt, kAudioDeviceTransportTypePCI:
+            return "bolt.horizontal"
+        default:
+            return "mic"
+        }
+    }
 }
 
 enum Audio {
@@ -86,8 +113,20 @@ enum Audio {
 
             let name = stringProperty(id, kAudioObjectPropertyName) ?? uid
 
-            return AudioDevice(id: id, uid: uid, name: name)
+            return AudioDevice(id: id, uid: uid, name: name, transport: transportType(id))
         }
+    }
+
+    private static func transportType(_ id: AudioDeviceID) -> UInt32 {
+        var addr = address(kAudioDevicePropertyTransportType)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr else {
+            return 0
+        }
+
+        return value
     }
 
     private static func hasInputChannels(_ id: AudioDeviceID) -> Bool {
@@ -145,6 +184,286 @@ enum Prefs {
     }
 }
 
+// MARK: - Menu row views
+
+// A stock NSMenu cannot look like the Sound or Bluetooth panels in Control
+// Centre — those are custom panels, not menus. These views get most of the way
+// there while keeping NSMenu's keyboard handling, dismissal and accessibility.
+
+private enum Style {
+    static let rowHeight: CGFloat = 32
+    static let badge: CGFloat = 22
+    static let leftInset: CGFloat = 13
+    static let gap: CGFloat = 9
+    static let rightInset: CGFloat = 20
+    static let cornerRadius: CGFloat = 5
+
+    static var font: NSFont { .menuFont(ofSize: 0) }
+
+    static func width(for title: String, extra: CGFloat = 0) -> CGFloat {
+        let text = (title as NSString).size(withAttributes: [.font: font]).width
+        return leftInset + badge + gap + ceil(text) + rightInset + extra
+    }
+}
+
+/// Draws the rounded selection fill NSMenu would normally draw for us.
+///
+/// A custom view has to track the mouse itself: NSMenu updates the item's
+/// isHighlighted but never asks the view to redraw, so relying on that alone
+/// leaves rows that never light up.
+private class HighlightingRowView: NSView {
+    var isEnabledRow = true
+    private var isHovered = false
+
+    // .inVisibleRect keeps the area in sync with bounds by itself. Installing it
+    // on move-to-window matters: updateTrackingAreas() is never called for a
+    // view whose frame is set manually, which leaves rows that never light up.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        guard trackingAreas.isEmpty else {
+            return
+        }
+
+        addTrackingArea(NSTrackingArea(rect: .zero,
+                                       options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self,
+                                       userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard isHighlightedRow else {
+            return
+        }
+
+        let inset = NSRect(x: 5, y: 1, width: bounds.width - 10, height: bounds.height - 2)
+        NSColor.selectedContentBackgroundColor.setFill()
+        NSBezierPath(roundedRect: inset, xRadius: Style.cornerRadius, yRadius: Style.cornerRadius).fill()
+    }
+
+    var isHighlightedRow: Bool {
+        isEnabledRow && (isHovered || enclosingMenuItem?.isHighlighted == true)
+    }
+
+    func drawLabel(_ title: String, x: CGFloat, colour: NSColor) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Style.font,
+            .foregroundColor: isHighlightedRow ? NSColor.selectedMenuItemTextColor : colour,
+        ]
+        let size = (title as NSString).size(withAttributes: attributes)
+        let y = (bounds.height - size.height) / 2
+        (title as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attributes)
+    }
+}
+
+private final class SectionHeaderView: NSView {
+    private let title: String
+
+    init(title: String, width: CGFloat) {
+        self.title = title
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 22))
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let size = (title as NSString).size(withAttributes: attributes)
+        (title as NSString).draw(at: NSPoint(x: Style.leftInset, y: (bounds.height - size.height) / 2 - 1),
+                                 withAttributes: attributes)
+    }
+}
+
+private final class DeviceRowView: HighlightingRowView {
+    private let device: AudioDevice
+    private let isPinned: Bool
+    private let isAvailable: Bool
+
+    init(device: AudioDevice, isPinned: Bool, isAvailable: Bool) {
+        self.device = device
+        self.isPinned = isPinned
+        self.isAvailable = isAvailable
+        super.init(frame: NSRect(x: 0, y: 0,
+                                 width: Style.width(for: device.name),
+                                 height: Style.rowHeight))
+        isEnabledRow = isAvailable
+
+        setAccessibilityRole(.menuItem)
+        setAccessibilityLabel(device.name)
+        setAccessibilityValue(isPinned ? "pinned" : "not pinned")
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let badgeRect = NSRect(x: Style.leftInset,
+                               y: (bounds.height - Style.badge) / 2,
+                               width: Style.badge,
+                               height: Style.badge)
+
+        // Filled accent badge marks the active device, as the Sound panel does.
+        // On a highlighted row the accent fill would sit on accent, and the
+        // faint unpinned fill would vanish, so both invert against the blue.
+        let badgeColour: NSColor
+        let glyphColour: NSColor
+
+        if isHighlightedRow {
+            badgeColour = isPinned ? .white : NSColor.white.withAlphaComponent(0.22)
+            glyphColour = isPinned ? .controlAccentColor : .white
+        } else {
+            badgeColour = isPinned ? .controlAccentColor : .quaternaryLabelColor
+            glyphColour = isPinned ? .white : .secondaryLabelColor
+        }
+
+        badgeColour.setFill()
+        NSBezierPath(ovalIn: badgeRect).fill()
+
+        // paletteColors, not colour.set() — a template image drawn directly
+        // ignores the current fill colour and comes out black.
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [glyphColour]))
+
+        if let glyph = NSImage(systemSymbolName: device.symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) {
+            let size = glyph.size
+            let origin = NSPoint(x: badgeRect.midX - size.width / 2, y: badgeRect.midY - size.height / 2)
+            glyph.draw(in: NSRect(origin: origin, size: size))
+        }
+
+        let colour = isAvailable ? NSColor.labelColor : NSColor.disabledControlTextColor
+        drawLabel(device.name, x: badgeRect.maxX + Style.gap, colour: colour)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isAvailable, let item = enclosingMenuItem, let menu = item.menu else {
+            return
+        }
+
+        let index = menu.index(of: item)
+        menu.cancelTracking()
+
+        // Fire after the menu has torn down, matching normal item behaviour.
+        DispatchQueue.main.async {
+            menu.performActionForItem(at: index)
+        }
+    }
+}
+
+/// A plain label row, aligned with the section headers rather than at NSMenu's
+/// wider default text inset, so the whole menu shares one left edge.
+private final class ActionRowView: HighlightingRowView {
+    private let title: String
+    private let shortcut: String?
+
+    init(title: String, shortcut: String? = nil, width: CGFloat) {
+        self.title = title
+        self.shortcut = shortcut
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Style.rowHeight))
+
+        setAccessibilityRole(.menuItem)
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawLabel(title, x: Style.leftInset, colour: .labelColor)
+
+        guard let shortcut else {
+            return
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Style.font,
+            .foregroundColor: isHighlightedRow ? NSColor.selectedMenuItemTextColor : NSColor.tertiaryLabelColor,
+        ]
+        let size = (shortcut as NSString).size(withAttributes: attributes)
+        (shortcut as NSString).draw(at: NSPoint(x: bounds.width - size.width - Style.rightInset,
+                                               y: (bounds.height - size.height) / 2),
+                                    withAttributes: attributes)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let item = enclosingMenuItem, let menu = item.menu else {
+            return
+        }
+
+        let index = menu.index(of: item)
+        menu.cancelTracking()
+        DispatchQueue.main.async { menu.performActionForItem(at: index) }
+    }
+}
+
+/// A row that reads as a switch and, unlike a normal menu item, does not
+/// dismiss the menu — so the state change is actually visible.
+private final class ToggleRowView: HighlightingRowView {
+    private let title: String
+    private var isOn: Bool
+
+    /// Returns the state that actually took effect, so a failed change reverts.
+    private let onToggle: (Bool) -> Bool
+
+    private let switchSize = NSSize(width: 36, height: 21)
+
+    init(title: String, isOn: Bool, width: CGFloat, onToggle: @escaping (Bool) -> Bool) {
+        self.title = title
+        self.isOn = isOn
+        self.onToggle = onToggle
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Style.rowHeight))
+
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        drawLabel(title, x: Style.leftInset, colour: .labelColor)
+
+        let track = NSRect(x: bounds.width - switchSize.width - Style.rightInset + 6,
+                           y: (bounds.height - switchSize.height) / 2,
+                           width: switchSize.width,
+                           height: switchSize.height)
+
+        (isOn ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setFill()
+        NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
+
+        let knob = CGFloat(17)
+        let knobRect = NSRect(x: isOn ? track.maxX - knob - 2 : track.minX + 2,
+                              y: track.midY - knob / 2,
+                              width: knob,
+                              height: knob)
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: knobRect).fill()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isOn = onToggle(!isOn)
+        needsDisplay = true
+
+        // Deliberately no cancelTracking(): a toggle should show its new state.
+        enclosingMenuItem?.menu?.items.forEach { $0.view?.needsDisplay = true }
+    }
+}
+
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -176,6 +495,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         enforceRepeatedly()
         refreshIcon()
+
     }
 
     @objc private func handleWake() {
@@ -265,66 +585,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
 
-        menu.addItem(header(statusLine()))
-        menu.addItem(.separator())
-        menu.addItem(header("Pinned input device"))
-
         let devices = Audio.inputDevices()
         let target = pinnedDevice
 
+        // Widest row decides the menu width, so every custom view agrees.
+        let widest = ([statusLine()] + devices.map(\.name)).reduce(CGFloat(210)) {
+            max($0, Style.width(for: $1, extra: 46))
+        }
+
+        menu.addItem(sectionHeader(statusLine(), width: widest))
+        menu.addItem(.separator())
+        menu.addItem(sectionHeader("Pinned input device", width: widest))
+
         for device in devices {
-            let item = NSMenuItem(title: device.name,
-                                  action: #selector(pinDevice(_:)),
-                                  keyEquivalent: "")
-            item.target = self
-            item.representedObject = device.uid
-            item.state = device.uid == target?.uid ? .on : .off
-            menu.addItem(item)
+            menu.addItem(deviceRow(device, isPinned: device.uid == target?.uid, isAvailable: true))
         }
 
         if devices.isEmpty {
-            menu.addItem(header("No input devices found"))
+            menu.addItem(sectionHeader("No input devices found", width: widest))
         }
 
         // A pinned device that is currently unplugged still deserves a row, so
         // it can be seen and unpinned.
         if target == nil, let name = Prefs.pinnedName {
-            let item = NSMenuItem(title: "\(name) (not connected)",
-                                 action: nil,
-                                 keyEquivalent: "")
-            item.state = .on
-            item.isEnabled = false
-            menu.addItem(item)
+            let absent = AudioDevice(id: 0, uid: Prefs.pinnedUID ?? name,
+                                     name: "\(name) (not connected)", transport: 0)
+            menu.addItem(deviceRow(absent, isPinned: true, isAvailable: false))
         }
 
         menu.addItem(.separator())
-
-        let none = NSMenuItem(title: "Pin nothing", action: #selector(unpin), keyEquivalent: "")
-        none.target = self
-        none.state = Prefs.pinnedUID == nil && Prefs.pinnedName == nil ? .on : .off
-        menu.addItem(none)
-
-        let pause = NSMenuItem(title: "Pause pinning", action: #selector(togglePause), keyEquivalent: "")
-        pause.target = self
-        pause.state = Prefs.isPaused ? .on : .off
-        menu.addItem(pause)
+        menu.addItem(actionRow("Pin nothing", action: #selector(unpin), width: widest))
+        menu.addItem(toggleRow("Pause pinning", isOn: Prefs.isPaused, width: widest) { [weak self] isOn in
+            Prefs.isPaused = isOn
+            self?.enforce()
+            return isOn
+        })
 
         menu.addItem(.separator())
-
-        let login = NSMenuItem(title: "Open at login", action: #selector(toggleLoginItem), keyEquivalent: "")
-        login.target = self
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
-
-        let settings = NSMenuItem(title: "Sound Settings…", action: #selector(openSoundSettings), keyEquivalent: "")
-        settings.target = self
-        menu.addItem(settings)
+        menu.addItem(toggleRow("Open at login",
+                               isOn: SMAppService.mainApp.status == .enabled,
+                               width: widest) { [weak self] isOn in
+            self?.setLoginItem(enabled: isOn) ?? false
+        })
+        menu.addItem(actionRow("Sound Settings…", action: #selector(openSoundSettings), width: widest))
 
         menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit MicPin", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
+        menu.addItem(actionRow("Quit MicPin", action: #selector(quit), width: widest,
+                               keyEquivalent: "q", shortcut: "⌘Q"))
     }
 
     private func statusLine() -> String {
@@ -343,16 +650,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return "Holding \(target.name)"
     }
 
-    private func header(_ title: String) -> NSMenuItem {
+    private func sectionHeader(_ title: String, width: CGFloat) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
-        item.attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
-        )
+        item.view = SectionHeaderView(title: title, width: width)
+
+        return item
+    }
+
+    private func deviceRow(_ device: AudioDevice, isPinned: Bool, isAvailable: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: device.name, action: #selector(pinDevice(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = device.uid
+        item.isEnabled = isAvailable
+        item.view = DeviceRowView(device: device, isPinned: isPinned, isAvailable: isAvailable)
+
+        return item
+    }
+
+    private func actionRow(_ title: String, action: Selector, width: CGFloat,
+                           keyEquivalent: String = "", shortcut: String? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = self
+        item.view = ActionRowView(title: title, shortcut: shortcut, width: width)
+
+        return item
+    }
+
+    private func toggleRow(_ title: String, isOn: Bool, width: CGFloat,
+                           onToggle: @escaping (Bool) -> Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.view = ToggleRowView(title: title, isOn: isOn, width: width, onToggle: onToggle)
 
         return item
     }
@@ -381,21 +709,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         enforce()
     }
 
-    @objc private func toggleLoginItem() {
+    /// Returns the state that actually took effect, so the switch can revert.
+    private func setLoginItem(enabled: Bool) -> Bool {
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
+            if enabled {
                 try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
             }
+
+            return enabled
         } catch {
             NSLog("MicPin: login item toggle failed: \(error.localizedDescription)")
 
-            let alert = NSAlert()
-            alert.messageText = "Couldn’t change the login item"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            alert.runModal()
+            // The menu is still open; an alert cannot be shown over menu
+            // tracking, so dismiss first and report afterwards.
+            menu.cancelTracking()
+
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Couldn’t change the login item"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+
+            return !enabled
         }
     }
 
