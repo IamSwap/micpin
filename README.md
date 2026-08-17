@@ -126,8 +126,14 @@ in System Settings → Login Items.
 
 ```sh
 ./build.sh                        # → /Applications/MicPin.app
+./build.sh ~/Applications/MicPin.app
 UNIVERSAL=1 ./build.sh            # arm64 + x86_64
 ```
+
+If you installed with Homebrew, `build.sh` refuses to overwrite that copy —
+building over it would leave Homebrew's records pointing at a version that is no
+longer there. Build to another path, `brew uninstall --cask micpin`, or set
+`FORCE=1`.
 
 One `swiftc` call over [one file](Sources/MicPin.swift). No Xcode project, no
 package manager, no dependencies — just the command line tools.

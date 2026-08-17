@@ -29,6 +29,26 @@ The workflow verifies independently of `build.sh`: it staples, asserts with
 *that* copy passes. A ticket can be correctly stapled to the app and still be
 lost by a bad archiving step, so checking the app alone is not enough.
 
+## The Homebrew cask
+
+Nothing to do. [IamSwap/homebrew-tap](https://github.com/IamSwap/homebrew-tap)
+polls for new releases every 30 minutes and commits the version and sha256
+itself.
+
+It runs there rather than here because a workflow's `GITHUB_TOKEN` only has write
+access to its own repository — bumping the tap from this side would mean keeping
+a personal access token as a secret. Releases are public, so polling needs none.
+
+For an instant bump instead of waiting:
+
+```sh
+gh workflow run update-cask.yml -R IamSwap/homebrew-tap
+```
+
+A published release can briefly have no asset attached, since this workflow
+uploads it a few minutes later. The tap treats that as "not ready yet" and picks
+it up on the next run rather than failing.
+
 ## Required repository secrets
 
 | Secret | What |

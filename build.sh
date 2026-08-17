@@ -29,6 +29,32 @@ CONTENTS="$APP/Contents"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
+# Refuse to clobber a Homebrew-managed install. Overwriting it silently leaves
+# `brew list` claiming a version that is no longer on disk, and the next
+# `brew upgrade` would quietly replace the local build.
+#
+# Homebrew keeps a symlink in the Caskroom pointing at wherever it put the app,
+# so resolving that is exact — no need to assume /Applications.
+if [[ -z ${FORCE:-} ]] && command -v brew >/dev/null 2>&1; then
+    for link in "$(brew --caskroom 2>/dev/null)"/micpin/*/MicPin.app; do
+        [[ -L $link ]] || continue
+
+        if [[ "$(readlink "$link")" == "$APP" ]]; then
+            cat >&2 <<EOF
+Refusing to build over $APP — Homebrew manages it.
+
+Overwriting it would leave Homebrew's records pointing at a version that is no
+longer there, and the next \`brew upgrade\` would silently replace your build.
+
+  ./build.sh ~/Applications/MicPin.app   build alongside it, leave brew alone
+  brew uninstall --cask micpin           hand the path back to this script
+  FORCE=1 ./build.sh                     overwrite it anyway
+EOF
+            exit 1
+        fi
+    done
+fi
+
 if pgrep -x MicPin >/dev/null; then
     echo "Stopping running MicPin…"
     pkill -x MicPin
