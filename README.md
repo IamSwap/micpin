@@ -6,9 +6,10 @@
 
 A tiny macOS menubar app that keeps your chosen microphone as the default input.
 
-macOS always switches to whatever was plugged in or paired last. Connect AirPods,
-a headset or a monitor webcam and your good mic is dropped without a word —
-usually noticed halfway through a call. MicPin puts it straight back.
+macOS always switches to whatever was plugged in or paired last. Plug in USB
+earphones, connect AirPods, pair a Bluetooth headset — every time, your good mic
+is quietly dropped. Halfway through dictating a sentence, or halfway through a
+call. There is no setting to stop it. MicPin puts it straight back.
 
 Speakers and headphones are left alone, so you can listen on Bluetooth while a
 USB or XLR mic keeps the input.
